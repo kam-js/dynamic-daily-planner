@@ -46,6 +46,44 @@ function scheduleTasks(tasks: Task[]): Task[] {
   return scheduledTasks;
 }
 
+function planDay(tasks: Task[]) {
+  const MAX_DAILY_EFFORT = 5;
+  const prioritizedTasks = prioritizeTasks(tasks);
+  let totalEffort = 0;
+  let taskIndex = 0;
+
+  for (
+    ;
+    taskIndex < tasks.length && calculateScore(tasks[taskIndex]) > 30;
+    taskIndex++
+  )
+    totalEffort += tasks[taskIndex].effortLevel;
+  const mustDo = prioritizedTasks.slice(0, taskIndex);
+  console.log("Must do tasks: ", mustDo);
+
+  const leftover = [];
+  if (totalEffort >= MAX_DAILY_EFFORT)
+    console.log("No other tasks recommended for today");
+  else {
+    const recommended = [];
+    for (
+      ;
+      taskIndex < tasks.length && totalEffort < MAX_DAILY_EFFORT;
+      taskIndex++
+    ) {
+      const totalEffortAfterTask = totalEffort + tasks[taskIndex].effortLevel;
+      if (totalEffortAfterTask <= MAX_DAILY_EFFORT) {
+        recommended.push(tasks[taskIndex]);
+        totalEffort = totalEffortAfterTask;
+      } else leftover.push(tasks[taskIndex]);
+    }
+    console.log("Recommended tasks: ", recommended);
+  }
+
+  leftover.push(...prioritizedTasks.slice(taskIndex));
+  console.log("Task still remaining: ", leftover);
+}
+
 function countAvailableConsecutiveIntervals(
   scheduledTasks: Task[],
   startIndex: number,
@@ -61,21 +99,28 @@ function countAvailableConsecutiveIntervals(
 
 function prioritizeTasks(tasks: Task[]): Task[] {
   return tasks.sort((a, b) => {
-    // First sort by due date (soonest first)
-    if (a.dueDate && b.dueDate) {
-      if (a.dueDate.getTime() !== b.dueDate.getTime()) {
-        return a.dueDate.getTime() - b.dueDate.getTime();
-      }
-    } else if (a.dueDate && !b.dueDate) {
-      return -1; // Task with due date comes first
-    } else if (!a.dueDate && b.dueDate) {
-      return 1; // Task with due date comes first
-    }
-    // If due dates are the same or both undefined, sort by priority (highest first: 3 > 2 > 1)
-    return b.priority - a.priority;
+    return calculateScore(b) - calculateScore(a);
   });
 }
 
+function calculateScore(task: Task): number {
+  let score = 0;
+  score += task.priority * 10;
+
+  if (task.dueDate) {
+    const now = Date.now();
+    const due = task.dueDate.getTime();
+    const daysLeft = (due - now) / (1000 * 60 * 60 * 24); // dividing by 1000ms, 60s, 60min, 24hr to get days
+
+    if (daysLeft < 1)
+      score += 30; // due today or overdue
+    else if (daysLeft < 4)
+      score += 15; // due tomorrow or the day after
+    else if (daysLeft < 7) score += 8; // due in a week
+  }
+
+  return score;
+}
 const testTasks: Task[] = [
   {
     id: "task-1",
@@ -83,7 +128,7 @@ const testTasks: Task[] = [
     estDuration: 120,
     priority: 3,
     effortLevel: 2,
-    dueDate: new Date("2026-04-26T09:00:00"),
+    dueDate: new Date("2026-05-05T09:00:00"),
   },
   {
     id: "task-2",
@@ -91,7 +136,7 @@ const testTasks: Task[] = [
     estDuration: 30,
     priority: 2,
     effortLevel: 1,
-    dueDate: new Date("2026-04-26T08:00:00"),
+    dueDate: new Date("2026-04-30T08:00:00"),
   },
   {
     id: "task-3",
@@ -104,9 +149,9 @@ const testTasks: Task[] = [
     id: "task-4",
     description: "Design review",
     estDuration: 90,
-    priority: 3,
+    priority: 2,
     effortLevel: 3,
-    dueDate: new Date("2026-04-27T10:00:00"),
+    dueDate: new Date("2026-06-27T10:00:00"),
   },
   {
     id: "task-5",
@@ -117,5 +162,5 @@ const testTasks: Task[] = [
   },
 ];
 
-const res = scheduleTasks(testTasks);
-console.log(res);
+const res = planDay(testTasks);
+// console.log(res);
