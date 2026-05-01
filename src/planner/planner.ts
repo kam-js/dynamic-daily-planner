@@ -1,125 +1,84 @@
-type Task = {
+export type PriorityLevel = 1 | 2 | 3;
+
+export type EffortLevel = 1 | 2 | 3;
+
+export type Task = {
   readonly id: string;
   description: string;
-  estDuration: number; // min
-  priority: 1 | 2 | 3; // 1 = low, 2 = medium, 3 = high
-  effortLevel: 1 | 2 | 3; // 1 = low, 2 = medium, 3 = high
+  estDuration: number; // minutes
+  priority: PriorityLevel;
+  effortLevel: EffortLevel;
   dueDate?: Date;
 };
 
-function scheduleTasks(tasks: Task[]): Task[] {
-  const INTERVAL_DURATION_MINUTES = 15;
-  const TOTAL_DAILY_INTERVALS = (24 * 60) / INTERVAL_DURATION_MINUTES; // 96 intervals of 15 minutes in a day
-  const MAX_DAILY_EFFORT = 5;
+export type DailyPlan = {
+  mustDo: Task[];
+  recommended: Task[];
+  remaining: Task[];
+  totalEffortLevel: number;
+};
 
+const MAX_DAILY_EFFORT = 5;
+const MUST_DO_SCORE_THRESHOLD = 30;
+const MILLISECONDS_PER_DAY = 1000 * 60 * 60 * 24;
+
+export function planDay(tasks: Task[]): DailyPlan {
   const prioritizedTasks = prioritizeTasks(tasks);
-  const scheduledTasks: Task[] = new Array(TOTAL_DAILY_INTERVALS);
+  const mustDo: Task[] = [];
+  const recommended: Task[] = [];
+  const remaining: Task[] = [];
+  let totalEffortLevel = 0;
 
-  let currentDayEffort = 0;
-  let currentIntervalIndex = 0;
+  for (const task of prioritizedTasks) {
+    if (computeTaskScore(task) > MUST_DO_SCORE_THRESHOLD) {
+      mustDo.push(task);
+      totalEffortLevel += task.effortLevel;
+      continue;
+    }
 
-  while (prioritizedTasks.length > 0 && currentDayEffort < MAX_DAILY_EFFORT) {
-    const availableConsecutiveIntervals = countAvailableConsecutiveIntervals(
-      scheduledTasks,
-      currentIntervalIndex,
-    );
-
-    for (let taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
-      const taskRequiredIntervals =
-        tasks[taskIndex].estDuration / INTERVAL_DURATION_MINUTES;
-      const totalEffortAfterTask =
-        tasks[taskIndex].effortLevel + currentDayEffort;
-
-      if (
-        taskRequiredIntervals <= availableConsecutiveIntervals &&
-        totalEffortAfterTask <= MAX_DAILY_EFFORT
-      ) {
-        scheduledTasks[currentIntervalIndex] = tasks[taskIndex];
-        tasks.splice(taskIndex, 1);
-        currentDayEffort = totalEffortAfterTask;
-        currentIntervalIndex += taskRequiredIntervals;
-        break;
-      }
+    const totalEffortAfterTask = totalEffortLevel + task.effortLevel;
+    if (totalEffortAfterTask <= MAX_DAILY_EFFORT) {
+      recommended.push(task);
+      totalEffortLevel = totalEffortAfterTask;
+    } else {
+      remaining.push(task);
     }
   }
 
-  return scheduledTasks;
+  return {
+    mustDo,
+    recommended,
+    remaining,
+    totalEffortLevel,
+  };
 }
 
-function planDay(tasks: Task[]) {
-  const MAX_DAILY_EFFORT = 5;
-  const prioritizedTasks = prioritizeTasks(tasks);
-  let totalEffort = 0;
-  let taskIndex = 0;
+export function prioritizeTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => computeTaskScore(b) - computeTaskScore(a));
+}
 
-  for (
-    ;
-    taskIndex < tasks.length && calculateScore(tasks[taskIndex]) > 30;
-    taskIndex++
-  )
-    totalEffort += tasks[taskIndex].effortLevel;
-  const mustDo = prioritizedTasks.slice(0, taskIndex);
-  console.log("Must do tasks: ", mustDo);
+export function computeTaskScore(task: Task): number {
+  let score = task.priority * 10;
 
-  const leftover = [];
-  if (totalEffort >= MAX_DAILY_EFFORT)
-    console.log("No other tasks recommended for today");
-  else {
-    const recommended = [];
-    for (
-      ;
-      taskIndex < tasks.length && totalEffort < MAX_DAILY_EFFORT;
-      taskIndex++
-    ) {
-      const totalEffortAfterTask = totalEffort + tasks[taskIndex].effortLevel;
-      if (totalEffortAfterTask <= MAX_DAILY_EFFORT) {
-        recommended.push(tasks[taskIndex]);
-        totalEffort = totalEffortAfterTask;
-      } else leftover.push(tasks[taskIndex]);
-    }
-    console.log("Recommended tasks: ", recommended);
+  if (!task.dueDate) {
+    return score;
   }
 
-  leftover.push(...prioritizedTasks.slice(taskIndex));
-  console.log("Task still remaining: ", leftover);
-}
+  const daysLeft = getDaysUntilDue(task.dueDate);
 
-function countAvailableConsecutiveIntervals(
-  scheduledTasks: Task[],
-  startIndex: number,
-): number {
-  let currentIndex = startIndex;
-  for (; currentIndex < scheduledTasks.length; currentIndex++) {
-    if (scheduledTasks[currentIndex]) {
-      break;
-    }
-  }
-  return currentIndex - startIndex;
-}
-
-function prioritizeTasks(tasks: Task[]): Task[] {
-  return tasks.sort((a, b) => {
-    return calculateScore(b) - calculateScore(a);
-  });
-}
-
-function calculateScore(task: Task): number {
-  let score = 0;
-  score += task.priority * 10;
-
-  if (task.dueDate) {
-    const now = Date.now();
-    const due = task.dueDate.getTime();
-    const daysLeft = (due - now) / (1000 * 60 * 60 * 24); // dividing by 1000ms, 60s, 60min, 24hr to get days
-
-    if (daysLeft < 1)
-      score += 30; // due today or overdue
-    else if (daysLeft < 4)
-      score += 15; // due tomorrow or the day after
-    else if (daysLeft < 7) score += 8; // due in a week
+  if (daysLeft < 1) {
+    score += 30; // due today or overdue
+  } else if (daysLeft < 4) {
+    score += 15; // due in the next few days
+  } else if (daysLeft < 7) {
+    score += 8; // due within a week
   }
 
   return score;
+}
+
+export function getDaysUntilDue(dueDate: Date): number {
+  return (dueDate.getTime() - Date.now()) / MILLISECONDS_PER_DAY;
 }
 const testTasks: Task[] = [
   {
@@ -163,4 +122,4 @@ const testTasks: Task[] = [
 ];
 
 const res = planDay(testTasks);
-// console.log(res);
+console.log(res);
